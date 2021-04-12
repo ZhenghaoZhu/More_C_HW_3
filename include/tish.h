@@ -14,6 +14,7 @@
 int tish_parseArgs(char** cliArgs);
 int tish_pwd(char** curArgs, int curArgsCount);
 int tish_cd(char** curArgs, int curArgsCount);
+int tish_echo_env(char** curArgs, int curArgsCount);
 int tish_all_else(char** curArgs, int curArgsCount);
 int tish_reset_fd();
 void tish_quit(char** cliArgs);

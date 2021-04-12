@@ -13,7 +13,7 @@
 sig_atomic_t cliRunning = true;
 char *cliArgs = NULL;
 // TODO  Next line for '$?' support
-// int lastCommandExit = 0;
+int lastCommandExit = 0;
 // TODO  Next for line for '-t' EC
 // bool timeCounting = false;
 
@@ -67,18 +67,15 @@ int tish_parseArgs(char** cliArgs){
     int oldStdIn = dup(STDIN_FILENO);
     int oldStdOut = dup(STDOUT_FILENO);
     int oldStdErr = dup(STDERR_FILENO);
-    FILE* fdPointer = NULL;
     int newFd = 0;
     bool redIn = false;
     bool redOut = false;
     bool redErr = false;
-    bool cdCmd = false, pwdCmd = false;
+    bool cdCmd = false, pwdCmd = false, envCmd = false, echoCmd = false;
     token = strtok(*cliArgs, delim);
-    // TODO  First set all of the redirections then go through commands in separate while loop
-    /* walk through other tokens */
-    // TODO  Have a count first? To know which null terminator take out from last
+
     while(token != NULL) {
-        totalArgs += 1;
+        // debug("len :  %ld, str: %s", strlen(token), token);
         if(redIn){
             size_t tokenLen = strlen(token);
             debug("%s", token);
@@ -89,12 +86,11 @@ int tish_parseArgs(char** cliArgs){
                     return 1;
                 }
             }
-            fdPointer = fopen(token, "r");
-            if(fdPointer == NULL){
+            newFd = open(token, O_RDONLY, 0640);
+            if(newFd == -1){
                 fprintf(stderr, "open failed\n");
                 return 1;
             }
-            newFd = fileno(fdPointer);
             if(dup2(newFd, STDIN_FILENO) == -1){
                 fprintf(stderr, "File redirection failed, please try again.\n");
             }
@@ -125,51 +121,54 @@ int tish_parseArgs(char** cliArgs){
             redErr = false;
         }
          else if(token[0] == '$'){
-             // TODO  Add 'echo' check
-            char* skipPointer = token + sizeof(char)*1;
-            char* envContainer = malloc(strlen(skipPointer) - 1);
-            if(envContainer == NULL){
-                fprintf(stderr, "malloc failed\n");
-                return 1;
-            }
-            strncpy(envContainer, skipPointer,strlen(skipPointer) - 1);
-            printf("%s\n", getenv(envContainer));
-            free(envContainer);
+            envCmd = true;
+            parsedArgs[argCount++] = token;
         } else if(strcmp(token, "<") == 0){
+            totalArgs += 1;
             redIn = true;
         } else if(strcmp(token, ">") == 0){
+            totalArgs += 1;
             redOut = true;
         } else if(strcmp(token, "2>") == 0){
+            totalArgs += 1;
             redErr = true;
+        } else if(strcmp(token, "echo") == 0) {
+            totalArgs += 1;
+            echoCmd = true;
         } else {
             if(strcmp(token, "cd") == 0){
                 cdCmd = true;
             } else if(strncmp(token, "pwd", 3) == 0){
                 pwdCmd = true;
             }
+            totalArgs += 1;
             parsedArgs[argCount++] = token;
         }
         token = strtok(NULL, delim);
     }
 
-    size_t lastArgLen = strlen(parsedArgs[argCount - 1]);
-    if(totalArgs == argCount){
+    if(argCount > 0 && argCount == totalArgs){
+        size_t lastArgLen = strlen(parsedArgs[argCount - 1]);
         parsedArgs[argCount - 1][lastArgLen - 1] = '\0';
     }
     parsedArgs[argCount] = NULL;
 
     if(cdCmd + pwdCmd > 1) {
-        fprintf(stderr, "Too many commands given, please try again. \n");
+        fprintf(stderr, "Too many commands given, please try again.\n");
     } else {
         if(cdCmd){
             tish_cd(parsedArgs, argCount);
         } else if(pwdCmd) {
             tish_pwd(parsedArgs, argCount);
-        } else {
+        } else if(envCmd && echoCmd){ 
+            tish_echo_env(parsedArgs, argCount);
+        }else {
             if(argCount == 0){
-                fprintf(stderr, "Please provide the command you wish to run. \n");
+                fprintf(stderr, "Please provide the command you wish to run.\n");
             } else {
-                tish_all_else(parsedArgs, argCount);
+                if(!envCmd){
+                    tish_all_else(parsedArgs, argCount);
+                }
             }
         }
     }
@@ -180,12 +179,19 @@ int tish_parseArgs(char** cliArgs){
 }
 
 int tish_pwd(char** curArgs, int curArgsCount){
+    if(curArgsCount > 2){
+        fprintf(stderr, "Too many arguments given, please try again.\n");
+        return 1;
+    }
     int curPathSz = 100;
     char curPath[curPathSz];
     if(getcwd(curPath, curPathSz) == NULL){
+        lastCommandExit = 1;
         fprintf(stderr, "Pwd command failed, please try again. \n");
+        return 1;
     }
     printf("%s\n", curPath);
+    lastCommandExit = 0;
     return 0;
 }
 
@@ -198,23 +204,58 @@ int tish_cd(char** curArgs, int curArgsCount){
     debug("str : %s len: %ld \n", curArgs[1], strlen(curArgs[1]));
     strncpy(destDirArr, curArgs[1], strlen(curArgs[1]));
     if(chdir(destDirArr) == -1){
+        lastCommandExit = 1;
         fprintf(stderr, "cd command failed, please try again. \n");
+        free(destDirArr);
+        return 1;
     }
     free(destDirArr);
+    lastCommandExit = 0;
+    return 0;
+}
+
+int tish_echo_env(char** curArgs, int curArgsCount){
+    if(curArgsCount < 1){
+        printf("\n");
+        return 0;
+    }
+    char* cutArg = curArgs[0] + sizeof(char)*1;
+    char* getEnvRet = NULL;
+    if(strcmp(cutArg, "?") == 0){
+        printf("%i\n", lastCommandExit);
+        lastCommandExit = 0;
+        return 0;
+    }
+    getEnvRet = getenv(cutArg); // Take out "$"
+    if(getEnvRet != NULL){
+        printf("%s\n", getEnvRet);
+    } else {
+        lastCommandExit = 1;
+        return 1;
+    }
+    lastCommandExit = 0;
     return 0;
 }
 
 int tish_all_else(char** curArgs, int curArgsCount){
+    int execRet = 0;
     pid_t childPID = fork();
     pid_t waitPID;
     int status;
     if(childPID == 0){ // Child
-        if(execvp(curArgs[0], curArgs) == -1){
+        execRet = execvp(curArgs[0], curArgs);
+        if(execRet == -1){
+            lastCommandExit = 1;
             fprintf(stderr, "execvp error.\n");
             exit(1);
         }
     }
     while((waitPID = wait(&status)) > 0);
+    if(execRet == -1){
+        lastCommandExit = 1;
+    } else {
+        lastCommandExit = 0;
+    }
     return 0;
 }
 

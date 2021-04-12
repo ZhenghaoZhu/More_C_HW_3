@@ -1,4 +1,6 @@
 .vscode/
 tish
 build/
-tmp/
+aTmp/
+
+.nfs00000000000d1fcc00000e33
