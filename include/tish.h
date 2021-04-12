@@ -7,14 +7,15 @@
 
 #define debug(S, ...)                                                          \
   do {                                                                         \
-    fprintf(stderr, KMAG "DEBUG: %s:%s:%d " KNRM S NL, __extension__ __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__);                \
+    fprintf(stdout, KMAG "DEBUG: %s:%s:%d " KNRM S NL, __extension__ __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__);                \
   } while (0)
 
 
-void tish_parseArgs(char** cliArgs);
-void tish_pwd();
-void tish_cd(char* destDir);
-void tish_ls();
+int tish_parseArgs(char** cliArgs);
+int tish_pwd(char** curArgs, int curArgsCount);
+int tish_cd(char** curArgs, int curArgsCount);
+int tish_all_else(char** curArgs, int curArgsCount);
+int tish_reset_fd();
 void tish_quit(char** cliArgs);
 
 // Signal Handlers //
