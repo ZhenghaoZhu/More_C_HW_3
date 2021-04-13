@@ -1,0 +1,4 @@
+FOO=BAR
+echo $FOO
+FOO=wow
+echo $FOO > testOutput/foo.txt

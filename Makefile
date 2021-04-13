@@ -48,8 +48,8 @@ clean:
 				rm -rf $(EXEC)
 
 tests: clean all
-				echo "\n\n"
-				bash -c $(TLD)/test3.sh
+				@if [ ! -d "$(TLD)/testOutput" ]; then mkdir $(TLD)/testOutput; fi
+				@echo "\n"
 				bash -c $(TLD)/test2.sh
 				bash -c $(TLD)/test1.sh
 

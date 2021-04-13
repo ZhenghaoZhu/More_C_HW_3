@@ -7,10 +7,12 @@
 
 #define debug(S, ...)                                                          \
   do {                                                                         \
-    fprintf(stdout, KMAG "DEBUG: %s:%s:%d " KNRM S NL, __extension__ __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__);                \
+    fprintf(stderr, KMAG "DEBUG: %s:%s:%d " KNRM S NL, __extension__ __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__);                \
   } while (0)
 
 
+void tish_running_cmd(char* curCmd);
+void tish_ending_cmd(char* curCmd, int exitStatus);
 int tish_parseArgs(char** cliArgs);
 int tish_pwd(char** curArgs, int curArgsCount);
 int tish_cd(char** curArgs, int curArgsCount);

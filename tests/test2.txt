@@ -1,0 +1,6 @@
+ls -la > testOutput/lsAll.txt
+pwd
+cd testOutput
+pwd
+cd ..
+ls -a > testOutput/lsSmall.txt

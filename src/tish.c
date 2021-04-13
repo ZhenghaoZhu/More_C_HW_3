@@ -14,6 +14,7 @@ sig_atomic_t cliRunning = true;
 char *cliArgs = NULL;
 // TODO  Next line for '$?' support
 int lastCommandExit = 0;
+bool debugOutput = false;
 // TODO  Next for line for '-t' EC
 // bool timeCounting = false;
 
@@ -24,16 +25,38 @@ void sigint_handler(int sigNum){
 }
 
 int main(int argc, char const *argv[], char *envp[]){
+    FILE* curStdIn = stdin;
+    bool nonInteractive = false;
     signal(SIGINT, sigint_handler);
+    for(int i = 1; i < argc; i++){
+        #ifdef EXTRA_CREDIT
+        if(strncmp(argv[i], "-t")){
+
+        }
+        #endif
+        if(strncmp(argv[i], "-d", 2) == 0){ // Debug Option
+            debugOutput = true;
+        } else if(access(argv[i], F_OK) == 0){ // Non interactive option
+            int newStdIn = open(argv[i], O_RDONLY, 0640);
+            if(dup2(newStdIn, fileno(curStdIn)) == -1){
+                fprintf(stderr, "Error ocured with non-interactive functionality.\n");
+                exit(1);
+            }
+            printf("%s\n", "tish> ");
+            nonInteractive = true;
+        }
+    }
     cliArgs = NULL;
     size_t cliLen;
     int charCount;
     int commandStatus;
-    debug("%s", "Huh");
+    // debug("%s", "Huh");
     while(cliRunning){
-        printf("%s", "tish> ");
+        if(!nonInteractive){
+            printf("%s", "tish> ");
+        }
         fflush(stdout);
-        charCount = getline(&cliArgs, &cliLen, stdin);
+        charCount = getline(&cliArgs, &cliLen, curStdIn);
         if(!cliRunning){
             break;
         }
@@ -44,7 +67,6 @@ int main(int argc, char const *argv[], char *envp[]){
                 tish_parseArgs(&cliArgs);
             }
         } else {
-            printf("No \n");
             cliRunning = false;
         }
     }
@@ -57,25 +79,33 @@ int main(int argc, char const *argv[], char *envp[]){
     return 0;
 }
 
+void tish_running_cmd(char* curCmd){
+    fprintf(stderr, "RUNNING: %s\n", curCmd);
+}
+
+void tish_ending_cmd(char* curCmd, int exitStatus){
+    fprintf(stderr, "ENDED: %s (ret=%d)\n", curCmd, exitStatus);
+}
+
 int tish_parseArgs(char** cliArgs){
     char* parsedArgs[MAX_ARGS];
-    char* token;
-    char* fileNameArr;
+    char* token = NULL;
+    char* fileNameArr = NULL;
+    char* setEnvStr = NULL;
     const char delim[2] = " ";
     int argCount = 0;
     int totalArgs = 0;
+    int newFd = 0;
     int oldStdIn = dup(STDIN_FILENO);
     int oldStdOut = dup(STDOUT_FILENO);
     int oldStdErr = dup(STDERR_FILENO);
-    int newFd = 0;
-    bool redIn = false;
-    bool redOut = false;
-    bool redErr = false;
-    bool cdCmd = false, pwdCmd = false, envCmd = false, echoCmd = false;
+    bool redIn = false, redOut = false, redErr = false;
+    bool cdCmd = false, pwdCmd = false, envCmd = false, echoCmd = false, comment = false;
     token = strtok(*cliArgs, delim);
 
     while(token != NULL) {
         // debug("len :  %ld, str: %s", strlen(token), token);
+        totalArgs += 1;
         if(redIn){
             size_t tokenLen = strlen(token);
             debug("%s", token);
@@ -88,7 +118,7 @@ int tish_parseArgs(char** cliArgs){
             }
             newFd = open(token, O_RDONLY, 0640);
             if(newFd == -1){
-                fprintf(stderr, "open failed\n");
+                fprintf(stderr, "stdin open failed\n");
                 return 1;
             }
             if(dup2(newFd, STDIN_FILENO) == -1){
@@ -98,9 +128,10 @@ int tish_parseArgs(char** cliArgs){
             redIn = false;
         } else if(redOut){
             token[strlen(token) - 1] = '\0';
+            // debug("FILE PASSED : %s\n", token);
             newFd = open(token, O_WRONLY | O_CREAT | O_TRUNC, 0640);
             if(newFd == -1){
-                fprintf(stderr, "open failed\n");
+                fprintf(stderr, "stdout open failed\n");
                 return 1;
             }
             if(dup2(newFd, STDOUT_FILENO) == -1){
@@ -111,7 +142,7 @@ int tish_parseArgs(char** cliArgs){
         } else if(redErr){
             newFd = open(token, O_WRONLY | O_CREAT | O_TRUNC, 0640);
             if(newFd == -1){
-                fprintf(stderr, "open failed\n");
+                fprintf(stderr, "stderr open failed\n");
                 return 1;
             }
             if(dup2(newFd, STDERR_FILENO) == -1){
@@ -119,21 +150,36 @@ int tish_parseArgs(char** cliArgs){
             }
             close(newFd);
             redErr = false;
-        }
-         else if(token[0] == '$'){
+        } else if(token[0] == '#'){
+            comment = true;
+            break; // Break out of loop and run args before command
+        } else if((setEnvStr = strchr(token, '=')) != NULL){
+            size_t equalToNameOffset = setEnvStr - token;
+            char* nameEnv = calloc(sizeof(char), equalToNameOffset + 1);
+            if(nameEnv == NULL){
+                fprintf(stderr, "Error mallocing.\n");
+                return 1;
+            }
+            strncpy(nameEnv, token, equalToNameOffset);
+            setEnvStr = setEnvStr + sizeof(char)*1; // Jump away from '='
+            if(setenv(nameEnv, setEnvStr, 1) == -1){
+                free(nameEnv);
+                fprintf(stderr, "Error setting environment variable.\n");
+                return 1;
+            }
+            free(nameEnv);
+            return 0;
+        } else if(token[0] == '$'){
             envCmd = true;
             parsedArgs[argCount++] = token;
         } else if(strcmp(token, "<") == 0){
-            totalArgs += 1;
             redIn = true;
         } else if(strcmp(token, ">") == 0){
-            totalArgs += 1;
             redOut = true;
         } else if(strcmp(token, "2>") == 0){
-            totalArgs += 1;
             redErr = true;
         } else if(strcmp(token, "echo") == 0) {
-            totalArgs += 1;
+            parsedArgs[argCount++] = token;
             echoCmd = true;
         } else {
             if(strcmp(token, "cd") == 0){
@@ -141,7 +187,6 @@ int tish_parseArgs(char** cliArgs){
             } else if(strncmp(token, "pwd", 3) == 0){
                 pwdCmd = true;
             }
-            totalArgs += 1;
             parsedArgs[argCount++] = token;
         }
         token = strtok(NULL, delim);
@@ -163,7 +208,7 @@ int tish_parseArgs(char** cliArgs){
         } else if(envCmd && echoCmd){ 
             tish_echo_env(parsedArgs, argCount);
         }else {
-            if(argCount == 0){
+            if(argCount == 0 && !comment){
                 fprintf(stderr, "Please provide the command you wish to run.\n");
             } else {
                 if(!envCmd){
@@ -201,7 +246,6 @@ int tish_cd(char** curArgs, int curArgsCount){
         return 1;
     }
     char * destDirArr = malloc(50);
-    debug("str : %s len: %ld \n", curArgs[1], strlen(curArgs[1]));
     strncpy(destDirArr, curArgs[1], strlen(curArgs[1]));
     if(chdir(destDirArr) == -1){
         lastCommandExit = 1;
@@ -219,16 +263,23 @@ int tish_echo_env(char** curArgs, int curArgsCount){
         printf("\n");
         return 0;
     }
-    char* cutArg = curArgs[0] + sizeof(char)*1;
+    char* cutArg = curArgs[1] + sizeof(char)*1; // Take out "$"
+    // for(int i = 0; i < strlen(cutArg); i++){
+    //     debug("%i", cutArg[i]);
+    // }
     char* getEnvRet = NULL;
     if(strcmp(cutArg, "?") == 0){
         printf("%i\n", lastCommandExit);
         lastCommandExit = 0;
         return 0;
     }
-    getEnvRet = getenv(cutArg); // Take out "$"
+    getEnvRet = getenv(cutArg); 
     if(getEnvRet != NULL){
-        printf("%s\n", getEnvRet);
+        if(strchr(getEnvRet, '\n') != NULL){
+            printf("%s", getEnvRet);
+        } else {
+            printf("%s\n", getEnvRet);
+        }
     } else {
         lastCommandExit = 1;
         return 1;
@@ -249,13 +300,20 @@ int tish_all_else(char** curArgs, int curArgsCount){
             fprintf(stderr, "execvp error.\n");
             exit(1);
         }
+    } else {
+        do {
+            waitPID = waitpid(childPID, &status, WUNTRACED | WCONTINUED);
+            if (waitPID == -1) {
+                perror("waitpid");
+                exit(EXIT_FAILURE);
+            }
+
+            if (WIFEXITED(status)) {
+                lastCommandExit = WEXITSTATUS(status);
+            }
+        } while (!WIFEXITED(status) && !WIFSIGNALED(status));
     }
     while((waitPID = wait(&status)) > 0);
-    if(execRet == -1){
-        lastCommandExit = 1;
-    } else {
-        lastCommandExit = 0;
-    }
     return 0;
 }
 
