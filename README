@@ -1,0 +1,33 @@
+HW3 README FILE
+
+How to run program: 
+1) Run the following command: "make tests" *Do this from the directory ~/hw3-zhenzhu
+    1a) The aforementioned command will run test*.sh files in the tests directory.
+
+All helper methods correspond to one or multiple commands such as cd, pwd, ls, sort, etc.
+Some functions have very specific names for specific functions.
+
+Folders:
+include/ Contains the single .h file used for tish
+src/ Contains the single .c file which is the implementation of tish
+tests/ Contains the .sh files and .txt files to automate the process of testing the shell and its multiple commands.
+
+Documentation Used:
+    https://developer.gnome.org/glib/stable/glib-data-types.html
+
+Testing using Valgrind:
+    To test in valgrind, you will have to run it normally like: valgrind ./tish and input commands manually, non-interactive gives a lot of issues with valgrind.
+
+LOGIC OF THE PROGRAM
+    The logic relies 2 hash tables and 3 linked lists, all of them are provided by glib.
+
+    mem_node_table - This hash table stores all currently alloced pointers. This is used to check if the pointer passed was already alloced in lkfree
+    and lk_malloc. The logic of double pointers and orphan frees solely relies on this data structure.
+
+    all_free - This hash table stores all the times lkfree was called, either sucessfully or unsuccessfully.
+
+    memleak_ll - This linked list specifically stores frees or allocs that produce memory leaks
+
+    bad_free_ll - This stores all other frees which are not appriate such as double frees and approximate frees.
+
+    good_free_ll - This stores all the good frees that didnt have any problems.

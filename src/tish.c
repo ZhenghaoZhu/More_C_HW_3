@@ -11,8 +11,10 @@
 #include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
+#include <glib.h>
 #include "tish.h"
 
+GSList* jobList = NULL;
 sig_atomic_t cliRunning = true;
 struct rusage useStart = {};
 struct rusage useEnd = {};
@@ -20,11 +22,32 @@ char *cliArgs = NULL;
 int lastCommandExit = 0;
 bool debugOutput = false;
 bool timeOutput = false;
+bool putInBackground = false;
 
 void sigint_handler(int sigNum){
-    debug("%i", sigNum);
     cliRunning = false;
-    return;
+    fprintf(stdout, "\n");
+    tish_quit(1);
+}
+
+void sigchld_handler(int sigNum){
+    pid_t curPID;
+    int status;
+    if((curPID = waitpid(-1, &status, WNOHANG)) != -1){
+        bool found = false;
+        GSList* iterator = NULL;
+        JOB* curJob = NULL;
+        for (iterator = jobList; iterator; iterator = iterator->next) {
+            curJob = (JOB*)iterator->data;
+            if(curPID == curJob->pgid){
+                for(int i = 0; i < curJob->argCount; i++){
+                    free(curJob->args[i]);
+                }
+                jobList = g_slist_remove_link(jobList, iterator);
+                break;
+            }
+        }
+    }
 }
 
 int main(int argc, char const *argv[], char *envp[]){
@@ -33,6 +56,7 @@ int main(int argc, char const *argv[], char *envp[]){
     getrusage(RUSAGE_SELF, &useStart);
     getrusage(RUSAGE_SELF, &useEnd);
     signal(SIGINT, sigint_handler);
+    signal(SIGCHLD, sigchld_handler);
     for(int i = 1; i < argc; i++){ // Run through flags and files passed
         #ifdef EXTRA_CREDIT
         if(strncmp(argv[i], "-t", 2) == 0){
@@ -45,7 +69,7 @@ int main(int argc, char const *argv[], char *envp[]){
             int newStdIn = open(argv[i], O_RDONLY, 0640);
             if(dup2(newStdIn, fileno(curStdIn)) == -1){ // Set stdin to file passed
                 fprintf(stderr, "Error ocured with non-interactive functionality.\n");
-                exit(1);
+                tish_quit(1);
             }
             printf("%s\n", "tish> ");
             nonInteractive = true;
@@ -66,8 +90,12 @@ int main(int argc, char const *argv[], char *envp[]){
             break;
         }
         if(charCount != -1){
-            if(!strncmp(cliArgs, "exit", 4)){
-                tish_quit(&cliArgs);
+            if(strncmp(cliArgs, "exit", 4) == 0){ // Check for exit command else begin parsing arguments
+                if(cliArgs != NULL){
+                    free(cliArgs);
+                    cliArgs = NULL;
+                }
+                tish_quit(0);
             } else {
                 tish_parseArgs(&cliArgs);
             }
@@ -80,28 +108,29 @@ int main(int argc, char const *argv[], char *envp[]){
         free(cliArgs);
         cliArgs = NULL;
     }
-
     return 0;
 }
 
-void tish_running_cmd(char* curCmd){
+void tish_running_cmd(char* curCmd){ // For RUNNING debug
     if(debugOutput){
         fprintf(stderr, "RUNNING: %s\n", curCmd);
     }
     return;
 }
 
-void tish_ending_cmd(char* curCmd, int exitStatus){
+void tish_ending_cmd(char* curCmd, int exitStatus){ // For ENDED debug
     if(debugOutput){
         fprintf(stderr, "ENDED: %s (ret=%d)\n", curCmd, exitStatus);
     }
     return;
 }
 
-void tish_time_cmd(double realTime, double userTime, double sysTime){
+void tish_time_cmd(double realTime, double userTime, double sysTime){ // FOR TIME EXTRA CREDIT
+    #ifdef EXTRA_CREDIT
     if(timeOutput){
         fprintf(stderr, "TIMES: real=%fs user=%fs sys=%fs\n", realTime, userTime, sysTime);
     }
+    #endif
     return;
 }
 
@@ -131,7 +160,7 @@ int tish_parseArgs(char** cliArgs){
     int oldStdOut = dup(STDOUT_FILENO);
     int oldStdErr = dup(STDERR_FILENO);
     bool redIn = false, redOut = false, redErr = false;
-    bool cdCmd = false, pwdCmd = false, envCmd = false, echoCmd = false, comment = false;
+    bool cdCmd = false, pwdCmd = false, envCmd = false, echoCmd = false, killCmd = false, fgCmd = false, comment = false;
     token = strtok(*cliArgs, delim);
 
     while(token != NULL) {
@@ -203,6 +232,8 @@ int tish_parseArgs(char** cliArgs){
             tish_ending_cmd("Setting ENV VAR", 0);
             free(nameEnv);
             return 0;
+        } else if(token[0] == '&'){
+            putInBackground = true;
         } else if(token[0] == '$'){
             envCmd = true;
             parsedArgs[argCount++] = token;
@@ -212,9 +243,16 @@ int tish_parseArgs(char** cliArgs){
             redOut = true;
         } else if(strcmp(token, "2>") == 0){
             redErr = true;
-        } else if(strcmp(token, "echo") == 0) {
+        } else if(strcmp(token, "echo") == 0){
             parsedArgs[argCount++] = token;
             echoCmd = true;
+        } else if(strncmp(token, "jobs", 4) == 0){
+            tish_print_jobs();
+            return 0;
+        } else if(strncmp(token, "kill", 4) == 0){
+            killCmd = true;
+        } else if(strncmp(token, "fg", 2) == 0){
+            fgCmd = true;
         } else {
             if(strcmp(token, "cd") == 0){
                 cdCmd = true;
@@ -226,19 +264,24 @@ int tish_parseArgs(char** cliArgs){
         token = strtok(NULL, delim);
     }
 
-    if(argCount > 0 && argCount == totalArgs){
+    if(argCount > 0 && argCount == totalArgs){ // Take into account null terminator of last argument
         size_t lastArgLen = strlen(parsedArgs[argCount - 1]);
         parsedArgs[argCount - 1][lastArgLen - 1] = '\0';
     }
     parsedArgs[argCount] = NULL;
 
-    if(cdCmd + pwdCmd > 1) {
+    if(cdCmd + pwdCmd + killCmd > 1) {
         fprintf(stderr, "Too many commands given, please try again.\n");
     } else {
-        if(cdCmd){
+        if(fgCmd){
+            tish_fg(parsedArgs, argCount);
+        }
+        else if(cdCmd){
             tish_cd(parsedArgs, argCount);
         } else if(pwdCmd) {
             tish_pwd(parsedArgs, argCount);
+        } else if(killCmd) {
+            tish_kill(parsedArgs, argCount);
         } else if(envCmd && echoCmd){ 
             tish_echo_env(parsedArgs, argCount);
         }else {
@@ -252,7 +295,7 @@ int tish_parseArgs(char** cliArgs){
         }
     }
 
-    tish_reset_fd(oldStdIn, oldStdOut, oldStdErr);
+    tish_reset_fd(oldStdIn, oldStdOut, oldStdErr); // Reset to old FDs
 
     return 0;
 }
@@ -290,6 +333,53 @@ int tish_pwd(char** curArgs, int curArgsCount){
     sysTime = sysEnd - sysStart;
     tish_time_cmd(realTime, userTime, sysTime);
     tish_ending_cmd("pwd", lastCommandExit);
+    return 0;
+}
+
+int tish_fg(char** curArgs, int curArgsCount){
+    GSList* iterator = NULL;
+    JOB* curJob = NULL;
+    char* pidPassed;
+    int pidInt = strtol(curArgs[0], &pidPassed, 10);
+    for (iterator = jobList; iterator; iterator = iterator->next) {
+        curJob = (JOB*)iterator->data;
+        if(curJob->pgid == pidInt){
+            kill(curJob->pgid, SIGCONT);
+            curJob->stopped = false;
+            return 0;
+        }
+    }
+    return 0;
+}
+
+int tish_kill(char** curArgs, int curArgsCount){
+    if(curArgsCount < 2){
+        fprintf(stderr, "Wrong number of arguments.\n");
+        return 1;
+    }
+    GSList* iterator = NULL;
+    JOB* curJob = NULL;
+    char* signalArr;
+    int signalInt = -1*strtol(curArgs[0], &signalArr, 10);
+    if(signalInt <= 0){
+        fprintf(stderr, "Signal passed not valid.\n");
+        return 1;
+    }
+    char* pidPassed;
+    int pidInt = strtol(curArgs[1], &pidPassed, 10);
+    for (iterator = jobList; iterator; iterator = iterator->next) {
+        curJob = (JOB*)iterator->data;
+        if(curJob->pgid == pidInt){
+            kill(curJob->pgid, signalInt);
+            if(signalInt == 9){
+                jobList = g_slist_remove_link(jobList, iterator);
+            }
+            if(signalInt == SIGSTOP){
+                curJob->stopped = true;
+            }
+            return 0;
+        }
+    }
     return 0;
 }
 
@@ -391,32 +481,106 @@ int tish_all_else(char** curArgs, int curArgsCount){
     tish_update_times(&start, &userStart, &sysStart, true);
     if(childPID == 0){ // Child
         tish_running_cmd(curArgs[0]);
-        execRet = execvp(curArgs[0], curArgs);
+        execRet = execvp(curArgs[0], curArgs); // Execute command, wait and all of that in parent
         if(execRet == -1){
             lastCommandExit = 1;
             fprintf(stderr, "execvp error.\n");
-            exit(1);
+            tish_quit(1);
         }
     } else {
-        do {
-            waitPID = waitpid(childPID, &status, WUNTRACED | WCONTINUED);
-            if (waitPID == -1) {
-                perror("waitpid");
-                exit(EXIT_FAILURE);
+            if(putInBackground && execRet != -1){ // Background process
+                int mainIn = fileno(stdin), mainOut = fileno(stdout), mainErr = fileno(stderr);
+                int newProcCount = g_slist_length(jobList) + 1;
+                fprintf(stdout, "[%i] %i\n", newProcCount, childPID);
+                tish_add_to_list(curArgs, curArgsCount, childPID, mainIn, mainOut, mainErr);
+                putInBackground = false;
+            } else { // Foreground process
+                waitPID = waitpid(childPID, &status, WUNTRACED | WCONTINUED);
+                if (waitPID == -1) {
+                    perror("waitpid");
+                    exit(EXIT_FAILURE);
+                }
+                if(putInBackground && execRet != -1){
+                    tish_job_completed(curArgs);
+                }
+                tish_update_times(&end, &userEnd, &sysEnd, false);
+                realTime = ((double) (end - start)) / CLOCKS_PER_SEC;
+                userTime = userEnd - userStart;
+                sysTime = sysEnd - sysStart;
+                if (WIFEXITED(status)) {
+                    lastCommandExit = WEXITSTATUS(status);
+                }
+                tish_time_cmd(realTime, userTime, sysTime);
+                tish_ending_cmd(curArgs[0], lastCommandExit);
             }
-            tish_update_times(&end, &userEnd, &sysEnd, false);
-            realTime = ((double) (end - start)) / CLOCKS_PER_SEC;
-            userTime = userEnd - userStart;
-            sysTime = sysEnd - sysStart;
-            if (WIFEXITED(status)) {
-                lastCommandExit = WEXITSTATUS(status);
-            }
-            tish_time_cmd(realTime, userTime, sysTime);
-            tish_ending_cmd(curArgs[0], lastCommandExit);
-        } while (!WIFEXITED(status) && !WIFSIGNALED(status));
     }
-    while((waitPID = wait(&status)) > 0);
+    // while((waitPID = wait(&status)) > 0);
     return 0;
+}
+
+void tish_job_completed(char **curArgs){ // Change status after job is completed
+    bool found = false;
+    GSList* iterator = NULL;
+    JOB* curJob = NULL;
+    for (iterator = jobList; iterator; iterator = iterator->next) {
+        curJob = (JOB*)iterator->data;
+        found = true;
+        for(int i = 0; i < curJob->argCount; i++){
+            if(strcmp(curArgs[i], curJob->args[i]) != 0){
+                found = false;
+                break;
+            }            
+        }
+        if(found){
+            curJob->completed = true;
+        }
+    }
+    return;
+}
+
+void tish_print_jobs(){
+    GSList* iterator = NULL;
+    int count = 0;
+    JOB* curJob = NULL;
+    for (iterator = jobList; iterator; iterator = iterator->next) {
+        curJob = (JOB*)iterator->data;
+        count += 1;
+        fprintf(stdout, "[%i] ", count);
+        if(!(curJob->stopped) && !(curJob->completed)){ // Check if it's running or stopped
+            fprintf(stdout, "%s \t\t", "Running");
+        } else if(curJob->stopped) {
+            fprintf(stdout, "%s \t\t", "Stopped");
+        } else {
+            fprintf(stdout, "%s \t\t", "Done");
+        }
+        fprintf(stdout, "%i \t\t", curJob->pgid);
+        for(int i = 0; i < curJob->argCount; i++){
+            fprintf(stdout, "%s ", curJob->args[i]);
+        }
+        fprintf(stdout, "\n");
+        fflush(stdout);
+    }
+    return;
+}
+
+void tish_add_to_list(char** curArgs, int curArgsCount, pid_t curPgid, int stdIn, int stdOut, int stdErr){
+    JOB* curJob = g_new(JOB, 1); // Create new job
+    if(curJob == NULL){
+        return;
+    }
+    curJob->pgid = curPgid;
+    for(int i = 0; i < curArgsCount; i++){ // Copy all args
+        curJob->args[i] = calloc(sizeof(char), strlen(curArgs[i]) + 1);
+        strcpy(curJob->args[i], curArgs[i]);
+    }
+    curJob->argCount = curArgsCount;
+    curJob->completed = false;
+    curJob->stopped = false;
+    curJob->curStdIn = stdIn;
+    curJob->curStdOut = stdOut;
+    curJob->curStdErr = stdErr;
+    jobList = g_slist_append(jobList, curJob); // Append job to list
+    return;
 }
 
 int tish_reset_fd(int oldStdIn, int oldStdOut, int oldStdErr){
@@ -429,9 +593,20 @@ int tish_reset_fd(int oldStdIn, int oldStdOut, int oldStdErr){
     return 0;
 }
 
-void tish_quit(char** cliArgs){
-    free(*cliArgs);
-    *cliArgs = NULL;
+void tish_quit(int exitStatus){
+    if(jobList != NULL){ // Free jobList
+        GSList* iterator = NULL;
+        JOB* curJob = NULL;
+        for (iterator = jobList; iterator; iterator = iterator->next) {
+            curJob = (JOB*)iterator->data;
+            for(int i = 0; i < curJob->argCount; i++){ // Free all args from each JOB struct
+                free(curJob->args[i]);
+            }
+            jobList = g_slist_remove_link(jobList, iterator);
+            break;
+        }
+        g_slist_free(jobList);
+    }
     cliRunning = false;
-    exit(0);
+    exit(exitStatus);
 }

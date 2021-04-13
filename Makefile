@@ -13,13 +13,13 @@ ALL_FUNCF := $(filter-out $(MAIN) $(AUX), $(ALL_OBJF))
 
 INC := -I $(INCD)
 
-CFLAGS := -g -O2 -Wall -Werror -Wno-unused-variable -Wno-unused-function -MMD
+CFLAGS := -g -O2 -Wall -Werror -Wno-unused-variable -Wno-unused-function -MMD $(shell pkg-config --cflags glib-2.0)
 COLORF := -DCOLOR
 DFLAGS := -g -DDEBUG -DCOLOR
 PRINT_STAMENTS := -DERROR -DSUCCESS -DWARN -DINFO
 
 STD := -std=gnu11
-LIBS := -lm -lssl -lcrypto
+LIBS := -lm $(shell pkg-config --cflags --libs glib-2.0)
 
 CFLAGS += $(STD)
 

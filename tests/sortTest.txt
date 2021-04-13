@@ -1,0 +1,5 @@
+4. elementary 500
+2. Manjaro 400
+3. Mint 300
+1. MX Linux 100
+5. Ubuntu 200
