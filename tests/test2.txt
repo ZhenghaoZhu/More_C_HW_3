@@ -4,4 +4,5 @@ cd testOutput
 pwd
 cd ..
 ls -a > testOutput/lsSmall.txt
+ls sdfsdf 2> testOutput/lsError.log
 exit
