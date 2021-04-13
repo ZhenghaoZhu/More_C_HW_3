@@ -54,6 +54,8 @@ tests: clean all
 				bash -c $(TLD)/test1.sh
 				@echo "\n\n"
 				bash -c $(TLD)/test2.sh
+				@echo "\n\n"
+				bash -c $(TLD)/test3.sh
 
 .PRECIOUS: $(BLDD)/*.d
 -include $(BLDD)/*.d

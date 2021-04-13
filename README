@@ -19,15 +19,9 @@ Testing using Valgrind:
     To test in valgrind, you will have to run it normally like: valgrind ./tish and input commands manually, non-interactive gives a lot of issues with valgrind.
 
 LOGIC OF THE PROGRAM
-    The logic relies 2 hash tables and 3 linked lists, all of them are provided by glib.
-
-    mem_node_table - This hash table stores all currently alloced pointers. This is used to check if the pointer passed was already alloced in lkfree
-    and lk_malloc. The logic of double pointers and orphan frees solely relies on this data structure.
-
-    all_free - This hash table stores all the times lkfree was called, either sucessfully or unsuccessfully.
-
-    memleak_ll - This linked list specifically stores frees or allocs that produce memory leaks
-
-    bad_free_ll - This stores all other frees which are not appriate such as double frees and approximate frees.
-
-    good_free_ll - This stores all the good frees that didnt have any problems.
+    - The logic of the jobs relies on a single linked list using the Glib library
+    - The tish_*_cmd() functions are used to print out debug statements whenever the -d flag is passed.
+    - The tish_update_times() function is used to get the starting and ending times of a command execution.
+    - tish_fg and tish_kill are exclusively used for their respective commands to handle jobs.
+    - tish_all_else is used for commands which don't have a specific function.
+        - Commands with specific functions include cd, pwd.

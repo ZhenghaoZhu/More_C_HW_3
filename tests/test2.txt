@@ -4,3 +4,4 @@ cd testOutput
 pwd
 cd ..
 ls -a > testOutput/lsSmall.txt
+exit

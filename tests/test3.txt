@@ -4,4 +4,6 @@ jobs
 # Can't test PID from the txt file
 sort -nr < sortTest.txt > testOutput/sorted.txt
 cat testOutput/sorted.txt
+sleep 1
 jobs
+exit

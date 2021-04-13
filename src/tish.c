@@ -168,7 +168,6 @@ int tish_parseArgs(char** cliArgs){
         totalArgs += 1;
         if(redIn){
             size_t tokenLen = strlen(token);
-            debug("%s", token);
             if(access(token, F_OK) != 0 ) {
                 token[tokenLen - 1] = '\0';
                 if(access(token, F_OK) != 0){

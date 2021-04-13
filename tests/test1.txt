@@ -2,3 +2,4 @@ FOO=BAR
 echo $FOO
 FOO=wow #WOWOOWO #WOWOWOW pwd
 echo $FOO > testOutput/foo.txt
+exit
