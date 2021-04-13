@@ -4,6 +4,7 @@
 
 #define MAX_ARGS 20
 #define ARG_MAX_LENGTH 20
+#define EXTRA_CREDIT 1
 
 #define debug(S, ...)                                                          \
   do {                                                                         \
@@ -13,6 +14,8 @@
 
 void tish_running_cmd(char* curCmd);
 void tish_ending_cmd(char* curCmd, int exitStatus);
+void tish_time_cmd(double realTime, double userTime, double sysTime);
+void tish_update_times(clock_t* curRealTime, double* curUserTime, double* curSysTime, bool start);
 int tish_parseArgs(char** cliArgs);
 int tish_pwd(char** curArgs, int curArgsCount);
 int tish_cd(char** curArgs, int curArgsCount);

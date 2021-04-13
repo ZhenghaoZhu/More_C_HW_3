@@ -25,7 +25,7 @@ CFLAGS += $(STD)
 
 EXEC := tish
 
-.PHONY: clean all setup debug tests wipe
+.PHONY: clean all setup debug tests
 
 all: setup $(EXEC)
 
@@ -48,14 +48,12 @@ clean:
 				rm -rf $(EXEC)
 
 tests: clean all
-				@if [ ! -d "$(TLD)/testOutput" ]; then mkdir $(TLD)/testOutput; fi
-				@echo "\n"
-				bash -c $(TLD)/test2.sh
+				@if [ -d "$(TLD)/testOutput" ]; then rm -rf $(TLD)/testOutput; fi
+				@mkdir $(TLD)/testOutput
+				@echo "\n\n"
 				bash -c $(TLD)/test1.sh
-
-wipe:
-				truncate -s 0 $(TFLD)/middleFile.txt
-				truncate -s 0 $(TFLD)/outFile.txt
+				@echo "\n\n"
+				bash -c $(TLD)/test2.sh
 
 .PRECIOUS: $(BLDD)/*.d
 -include $(BLDD)/*.d

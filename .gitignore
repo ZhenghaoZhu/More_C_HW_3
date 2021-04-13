@@ -3,4 +3,4 @@ tish
 build/
 aTmp/
 testOutput/
-.nfs00000000000d1fcf00000e4e
+.nfs*
